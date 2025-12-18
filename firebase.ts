@@ -1,9 +1,8 @@
 
 import { initializeApp, getApps } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
-// Use separate imports for types and functions to avoid resolution ambiguity
-import { getAuth } from 'firebase/auth';
-import type { Auth } from 'firebase/auth';
+// Fix: Use consolidated imports to avoid "no exported member" errors in some environments
+import { getAuth, Auth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
 

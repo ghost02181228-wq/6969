@@ -5,14 +5,14 @@ import {
   Trash2, BrainCircuit, Loader2, Menu, Plus, ShieldCheck, PlayCircle, Info, Database, FlaskConical
 } from 'lucide-react';
 import { auth, db, isConfigured } from './firebase';
-// Fix: separate type import for User and functional imports for auth operations
+// Fix: Consolidate auth imports into a single statement to resolve resolution ambiguity and member export errors
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
-  signOut 
+  signOut,
+  User
 } from 'firebase/auth';
-import type { User } from 'firebase/auth';
 import { 
   collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc 
 } from 'firebase/firestore';
