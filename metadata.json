@@ -1,0 +1,5 @@
+{
+  "name": "金流大師 - 個人化金融管理系統",
+  "description": "一個結合 Firebase 雲端同步與 Gemini AI 智慧分析的個人財務管理平台，支援多帳戶管理、收支追蹤與自動化財務報告。",
+  "requestFramePermissions": []
+}
