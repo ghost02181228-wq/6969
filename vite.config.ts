@@ -6,8 +6,7 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   define: {
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
-    'process.env.FIREBASE_CONFIG': JSON.stringify(process.env.FIREBASE_CONFIG)
+    'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
   },
   build: {
     minify: 'terser',

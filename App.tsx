@@ -1,94 +1,59 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Wallet, 
-  Plus, 
-  PieChart, 
-  LogOut, 
-  Settings, 
-  TrendingUp, 
-  TrendingDown,
-  Trash2,
-  Edit2,
-  BrainCircuit,
-  Loader2,
-  Menu,
-  X
+  Wallet, PieChart, LogOut, TrendingUp, TrendingDown, 
+  Trash2, BrainCircuit, Loader2, Menu, Plus, ShieldCheck, PlayCircle, Info, Database, FlaskConical
 } from 'lucide-react';
+import { auth, db, isConfigured } from './firebase';
 import { 
-  auth, 
-  db, 
-  isConfigured 
-} from './firebase';
-import { 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut,
-  User 
+  onAuthStateChanged, signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, signOut, User 
 } from 'firebase/auth';
 import { 
-  collection, 
-  addDoc, 
-  query, 
-  where, 
-  onSnapshot,
-  deleteDoc,
-  doc,
-  updateDoc
+  collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc 
 } from 'firebase/firestore';
 import { 
-  DEFAULT_CATEGORIES, 
-  DEFAULT_ACCOUNTS, 
-  ACCOUNT_COLORS 
+  DEFAULT_CATEGORIES, DEFAULT_ACCOUNTS, ACCOUNT_COLORS 
 } from './constants';
 import { 
-  AppState, 
-  BankAccount, 
-  Transaction, 
-  Category,
-  CategoryType 
+  AppState, BankAccount, Transaction, CategoryType 
 } from './types';
 import { analyzeFinances } from './geminiService';
 import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  Cell,
-  PieChart as RechartsPieChart,
-  Pie
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
+  ResponsiveContainer, Cell
 } from 'recharts';
 
-// --- UI Components ---
-
-const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'danger' | 'outline' | 'ghost' }> = ({ children, variant = 'primary', className, ...props }) => {
-  const variants = {
-    primary: 'bg-blue-600 text-white hover:bg-blue-700',
+// --- 通用 UI 元件 ---
+const Button = ({ children, variant = 'primary', className = '', ...props }: any) => {
+  const variants: any = {
+    primary: 'bg-blue-600 text-white hover:bg-blue-700 shadow-md',
+    secondary: 'bg-slate-800 text-white hover:bg-slate-900',
     danger: 'bg-red-500 text-white hover:bg-red-600',
-    outline: 'border border-slate-300 text-slate-700 hover:bg-slate-50',
+    outline: 'border border-slate-300 text-slate-700 hover:bg-slate-100',
     ghost: 'text-slate-500 hover:bg-slate-100'
   };
   return (
-    <button className={`px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 ${variants[variant]} ${className}`} {...props}>
+    <button className={`px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${variants[variant]} ${className}`} {...props}>
       {children}
     </button>
   );
 };
 
-const Card: React.FC<{ children: React.ReactNode; title?: string; className?: string }> = ({ children, title, className }) => (
+const Card = ({ children, title, className = '', headerAction }: any) => (
   <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${className}`}>
-    {title && <div className="px-6 py-4 border-bottom border-slate-100 font-bold text-lg">{title}</div>}
+    {title && (
+      <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+        <h3 className="font-bold text-lg text-slate-800">{title}</h3>
+        {headerAction}
+      </div>
+    )}
     <div className="p-6">{children}</div>
   </div>
 );
 
-// --- Main App ---
-
 const App: React.FC = () => {
+  const [appMode, setAppMode] = useState<'selection' | 'production' | 'test'>('selection');
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
@@ -97,195 +62,147 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   
   const [state, setState] = useState<AppState>({
-    accounts: [],
+    accounts: DEFAULT_ACCOUNTS,
     categories: DEFAULT_CATEGORIES,
     transactions: [],
-    isDemo: !isConfigured
+    isDemo: true
   });
 
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'accounts' | 'transactions' | 'ai'>('overview');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-  // --- Auth Handlers ---
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiResult, setAiResult] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    if (!auth) { setLoading(false); return; }
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (u) setAppMode('production');
       setLoading(false);
     });
-    return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (appMode !== 'production' || !user || !db) return;
+    const unsubAccs = onSnapshot(collection(db, `users/${user.uid}/accounts`), (s) => {
+      const data = s.docs.map(d => ({ id: d.id, ...d.data() })) as BankAccount[];
+      setState(p => ({ ...p, accounts: data.length > 0 ? data : DEFAULT_ACCOUNTS, isDemo: false }));
+    });
+    const unsubTxs = onSnapshot(collection(db, `users/${user.uid}/transactions`), (s) => {
+      const data = s.docs.map(d => ({ id: d.id, ...d.data() })) as Transaction[];
+      setState(p => ({ ...p, transactions: data.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()) }));
+    });
+    return () => { unsubAccs(); unsubTxs(); };
+  }, [appMode, user]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth) return;
     setAuthError('');
     try {
-      if (isRegistering) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
-    } catch (err: any) {
-      setAuthError(err.message);
-    }
+      if (isRegistering) await createUserWithEmailAndPassword(auth, email, password);
+      else await signInWithEmailAndPassword(auth, email, password);
+    } catch (err: any) { setAuthError("登入失敗，請檢查信箱與密碼。"); }
   };
-
-  const handleLogout = () => auth && signOut(auth);
-
-  // --- Data Synchronization ---
-
-  useEffect(() => {
-    if (!user || !db) {
-      // In Demo Mode
-      setState(prev => ({
-        ...prev,
-        accounts: DEFAULT_ACCOUNTS,
-        transactions: [],
-        isDemo: true
-      }));
-      return;
-    }
-
-    const accountsRef = collection(db, `users/${user.uid}/accounts`);
-    const transRef = collection(db, `users/${user.uid}/transactions`);
-
-    const unsubAccounts = onSnapshot(accountsRef, (snapshot) => {
-      const accs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as BankAccount[];
-      setState(prev => ({ ...prev, accounts: accs.length > 0 ? accs : DEFAULT_ACCOUNTS }));
-    });
-
-    const unsubTrans = onSnapshot(transRef, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Transaction[];
-      setState(prev => ({ ...prev, transactions: txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) }));
-    });
-
-    return () => {
-      unsubAccounts();
-      unsubTrans();
-    };
-  }, [user]);
-
-  // --- Transaction Handlers ---
 
   const addTransaction = async (tx: Omit<Transaction, 'id'>) => {
-    if (state.isDemo) {
-      const newTx = { ...tx, id: Math.random().toString() };
-      setState(prev => ({ 
-        ...prev, 
-        transactions: [newTx, ...prev.transactions],
-        accounts: prev.accounts.map(acc => 
-          acc.id === tx.accountId 
-          ? { ...acc, balance: acc.balance + (tx.type === '收入' ? tx.amount : -tx.amount) }
-          : acc
-        )
+    if (appMode === 'test' || !user || !db) {
+      const newTx = { ...tx, id: Date.now().toString() };
+      setState(p => ({ 
+        ...p, 
+        transactions: [newTx, ...p.transactions],
+        accounts: p.accounts.map(a => a.id === tx.accountId ? { ...a, balance: a.balance + (tx.type === '收入' ? tx.amount : -tx.amount) } : a)
       }));
       return;
     }
-    if (!user || !db) return;
     await addDoc(collection(db, `users/${user.uid}/transactions`), tx);
-    const accRef = doc(db, `users/${user.uid}/accounts`, tx.accountId);
-    const targetAccount = state.accounts.find(a => a.id === tx.accountId);
-    if (targetAccount) {
-      await updateDoc(accRef, {
-        balance: targetAccount.balance + (tx.type === '收入' ? tx.amount : -tx.amount)
-      });
+    const acc = state.accounts.find(a => a.id === tx.accountId);
+    if (acc) {
+      const accRef = doc(db, `users/${user.uid}/accounts`, tx.accountId);
+      await updateDoc(accRef, { balance: acc.balance + (tx.type === '收入' ? tx.amount : -tx.amount) });
     }
   };
-
-  const deleteTransaction = async (tx: Transaction) => {
-    if (state.isDemo) {
-      setState(prev => ({
-        ...prev,
-        transactions: prev.transactions.filter(t => t.id !== tx.id),
-        accounts: prev.accounts.map(acc => 
-          acc.id === tx.accountId 
-          ? { ...acc, balance: acc.balance + (tx.type === '收入' ? -tx.amount : tx.amount) }
-          : acc
-        )
-      }));
-      return;
-    }
-    if (!user || !db) return;
-    await deleteDoc(doc(db, `users/${user.uid}/transactions`, tx.id));
-    const accRef = doc(db, `users/${user.uid}/accounts`, tx.accountId);
-    const targetAccount = state.accounts.find(a => a.id === tx.accountId);
-    if (targetAccount) {
-      await updateDoc(accRef, {
-        balance: targetAccount.balance + (tx.type === '收入' ? -tx.amount : tx.amount)
-      });
-    }
-  };
-
-  // --- Account Handlers ---
 
   const addAccount = async (name: string, balance: number) => {
-    const newAcc = { name, balance, color: ACCOUNT_COLORS[state.accounts.length % ACCOUNT_COLORS.length] };
-    if (state.isDemo) {
-      setState(prev => ({ ...prev, accounts: [...prev.accounts, { ...newAcc, id: Math.random().toString() }] }));
+    const newAccData = { name, balance, color: ACCOUNT_COLORS[state.accounts.length % ACCOUNT_COLORS.length] };
+    if (appMode === 'test' || !user || !db) {
+      setState(p => ({ ...p, accounts: [...p.accounts, { ...newAccData, id: Date.now().toString() }] }));
       return;
     }
-    if (!user || !db) return;
-    await addDoc(collection(db, `users/${user.uid}/accounts`), newAcc);
+    await addDoc(collection(db, `users/${user.uid}/accounts`), newAccData);
   };
 
-  // --- AI Analysis ---
-
-  const runAnalysis = async () => {
+  // 修正：新增 handleRunAI 函式以呼叫 Gemini 服務進行財務分析
+  const handleRunAI = async () => {
     setIsAnalyzing(true);
-    const result = await analyzeFinances(state);
-    setAiAnalysis(result);
-    setIsAnalyzing(false);
+    try {
+      const result = await analyzeFinances(state);
+      setAiResult(result);
+    } catch (error) {
+      console.error("AI Analysis Error:", error);
+      setAiResult("分析失敗，請檢查網路連線或稍後再試。");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
-  // --- Renderers ---
+  const handleLogout = () => {
+    if (auth) signOut(auth);
+    setAppMode('selection');
+    setUser(null);
+    setState({ accounts: DEFAULT_ACCOUNTS, categories: DEFAULT_CATEGORIES, transactions: [], isDemo: true });
+  };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-600 w-12 h-12" /></div>;
-  }
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
 
-  if (!user && !state.isDemo) {
+  if (appMode === 'selection' || (appMode === 'production' && !user)) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+        <Card className="w-full max-w-lg shadow-2xl border-none">
           <div className="text-center mb-8">
-            <div className="inline-flex p-3 bg-blue-600 rounded-2xl mb-4"><Wallet className="text-white w-8 h-8" /></div>
-            <h1 className="text-2xl font-bold">金流大師</h1>
-            <p className="text-slate-500">歡迎進入您的智慧理財中心</p>
+            <div className="inline-block p-4 bg-blue-600 rounded-2xl mb-4"><Wallet className="text-white" size={32} /></div>
+            <h1 className="text-3xl font-bold text-slate-900">金流大師 <span className="text-blue-600">AI</span></h1>
+            <p className="text-slate-500 mt-2">請選擇系統模式開始使用</p>
           </div>
-          
-          <form onSubmit={handleAuth} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">電子郵件</label>
-              <input 
-                type="email" required
-                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                value={email} onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">密碼</label>
-              <input 
-                type="password" required
-                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                value={password} onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            {authError && <p className="text-red-500 text-sm">{authError}</p>}
-            <Button type="submit" className="w-full">{isRegistering ? '註冊帳號' : '登入'}</Button>
-          </form>
 
-          <div className="mt-6 text-center text-sm">
-            <button onClick={() => setIsRegistering(!isRegistering)} className="text-blue-600 hover:underline">
-              {isRegistering ? '已經有帳號？點此登入' : '還沒有帳號？點此註冊'}
-            </button>
-          </div>
+          {appMode === 'selection' ? (
+            <div className="space-y-4">
+              <button onClick={() => isConfigured ? setAppMode('production') : alert('請先在 firebase.ts 中填寫您的設定！')} className="w-full flex items-center justify-between p-5 bg-white border-2 border-slate-100 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-blue-100 text-blue-600 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition-colors"><Database /></div>
+                  <div className="text-left">
+                    <p className="font-bold text-slate-800">正式模式</p>
+                    <p className="text-xs text-slate-500">雲端同步，永久保存資料</p>
+                  </div>
+                </div>
+                <ShieldCheck className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+              
+              <button onClick={() => setAppMode('test')} className="w-full flex items-center justify-between p-5 bg-white border-2 border-slate-100 rounded-xl hover:border-amber-500 hover:bg-amber-50 transition-all group">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-amber-100 text-amber-600 rounded-lg group-hover:bg-amber-600 group-hover:text-white transition-colors"><FlaskConical /></div>
+                  <div className="text-left">
+                    <p className="font-bold text-slate-800">測試模式</p>
+                    <p className="text-xs text-slate-500">快速體驗，不需登入</p>
+                  </div>
+                </div>
+                <PlayCircle className="text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleAuth} className="space-y-4">
+              <div className="flex justify-between items-center mb-2">
+                <h2 className="text-xl font-bold">{isRegistering ? '註冊帳號' : '登入系統'}</h2>
+                <button type="button" onClick={() => setAppMode('selection')} className="text-sm text-blue-600 hover:underline">返回模式選擇</button>
+              </div>
+              <input type="email" placeholder="電子郵件" className="w-full p-3 border rounded-lg" value={email} onChange={e => setEmail(e.target.value)} required />
+              <input type="password" placeholder="密碼" className="w-full p-3 border rounded-lg" value={password} onChange={e => setPassword(e.target.value)} required />
+              {authError && <p className="text-red-500 text-sm">{authError}</p>}
+              <Button type="submit" className="w-full py-3 text-lg">{isRegistering ? '立即註冊' : '確認登入'}</Button>
+              <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-slate-500 text-sm">
+                {isRegistering ? '已有帳號？點此登入' : '還沒有帳號？點此註冊'}
+              </button>
+            </form>
+          )}
         </Card>
       </div>
     );
@@ -293,389 +210,168 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      {/* Sidebar - Desktop */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 h-full flex flex-col">
-          <div className="flex items-center gap-3 mb-10">
-            <div className="p-2 bg-blue-600 rounded-lg"><Wallet className="text-white w-5 h-5" /></div>
-            <span className="font-bold text-xl">金流大師</span>
+      <aside className="w-64 bg-slate-900 text-white hidden md:flex flex-col p-6 space-y-2">
+        <div className="flex items-center gap-2 font-bold text-2xl text-blue-400 mb-10"><Wallet /> 金流大師</div>
+        <NavButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} icon={<PieChart size={20}/>} label="總覽" />
+        <NavButton active={activeTab === 'accounts'} onClick={() => setActiveTab('accounts')} icon={<Wallet size={20}/>} label="帳戶" />
+        <NavButton active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')} icon={<TrendingUp size={20}/>} label="明細" />
+        <NavButton active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} icon={<BrainCircuit size={20}/>} label="AI 建議" />
+        <div className="mt-auto pt-6 border-t border-slate-800">
+          <div className={`px-3 py-2 rounded-lg mb-4 text-xs font-bold ${appMode === 'production' ? 'bg-green-900/30 text-green-400' : 'bg-amber-900/30 text-amber-400'}`}>
+             {appMode === 'production' ? '● 正式連線中' : '○ 測試模式體驗中'}
           </div>
-
-          <nav className="flex-1 space-y-1">
-            <button 
-              onClick={() => { setActiveTab('overview'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'overview' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              <PieChart size={20} /> 總覽
-            </button>
-            <button 
-              onClick={() => { setActiveTab('accounts'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'accounts' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              <Wallet size={20} /> 銀行帳戶
-            </button>
-            <button 
-              onClick={() => { setActiveTab('transactions'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'transactions' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              <TrendingUp size={20} /> 收支紀錄
-            </button>
-            <button 
-              onClick={() => { setActiveTab('ai'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'ai' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
-            >
-              <BrainCircuit size={20} /> AI 智慧建議
-            </button>
-          </nav>
-
-          <div className="pt-6 border-t border-slate-100">
-            <div className="mb-4">
-              <p className="text-xs text-slate-400 font-bold px-4 mb-2 uppercase tracking-widest">目前帳戶</p>
-              <div className="px-4 py-2 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold">{user?.email?.[0].toUpperCase() || 'D'}</div>
-                <div className="overflow-hidden">
-                  <p className="text-sm font-medium truncate">{user?.email || '展示模式'}</p>
-                </div>
-              </div>
-            </div>
-            <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-500 hover:bg-red-50 transition-colors">
-              <LogOut size={20} /> 登出
-            </button>
-          </div>
+          <p className="text-[10px] text-slate-500 truncate mb-4">{user?.email || "Local Guest"}</p>
+          <button onClick={handleLogout} className="flex items-center gap-3 text-red-400 text-sm hover:text-red-300"><LogOut size={16}/> 登出/返回</button>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 md:ml-64 p-4 md:p-8">
-        {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-             <div className="p-1.5 bg-blue-600 rounded-lg"><Wallet className="text-white w-4 h-4" /></div>
-             <span className="font-bold">金流大師</span>
-          </div>
-          <button onClick={() => setIsSidebarOpen(true)} className="p-2 bg-white rounded-lg shadow-sm border border-slate-200"><Menu size={20} /></button>
-        </div>
-
-        {/* Dynamic Views */}
-        {activeTab === 'overview' && <OverviewView state={state} onAddTransaction={addTransaction} />}
-        {activeTab === 'accounts' && <AccountsView state={state} onAddAccount={addAccount} />}
-        {activeTab === 'transactions' && <TransactionsView state={state} onDeleteTransaction={deleteTransaction} />}
-        {activeTab === 'ai' && <AIView analysis={aiAnalysis} isAnalyzing={isAnalyzing} onRunAnalysis={runAnalysis} />}
+      <main className="flex-1 p-8 overflow-y-auto">
+        {activeTab === 'overview' && <OverviewView state={state} onAdd={addTransaction} />}
+        {activeTab === 'accounts' && <AccountsView state={state} onAdd={addAccount} />}
+        {activeTab === 'transactions' && <TransactionsView state={state} />}
+        {activeTab === 'ai' && <AIView result={aiResult} loading={isAnalyzing} onRun={handleRunAI} />}
       </main>
-
-      {/* Sidebar Overlay */}
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/20 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)}></div>}
     </div>
   );
 };
 
-// --- Sub-Views ---
+const NavButton = ({ active, onClick, icon, label }: any) => (
+  <button onClick={onClick} className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${active ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+    {icon} <span>{label}</span>
+  </button>
+);
 
-const OverviewView: React.FC<{ state: AppState, onAddTransaction: (tx: any) => void }> = ({ state, onAddTransaction }) => {
-  const [showAddTx, setShowAddTx] = useState(false);
-  const [txForm, setTxForm] = useState({ accountId: '', categoryId: '', amount: 0, type: '支出' as CategoryType, note: '', date: new Date().toISOString().split('T')[0] });
-
-  const totalBalance = useMemo(() => state.accounts.reduce((sum, a) => sum + a.balance, 0), [state.accounts]);
-  
-  const chartData = useMemo(() => {
-    return state.accounts.map(acc => ({ name: acc.name, balance: acc.balance, color: acc.color }));
-  }, [state.accounts]);
-
-  const categorySpending = useMemo(() => {
-    const data: Record<string, number> = {};
-    state.transactions.filter(t => t.type === '支出').forEach(t => {
-      const cat = state.categories.find(c => c.id === t.categoryId)?.name || '未分類';
-      data[cat] = (data[cat] || 0) + t.amount;
-    });
-    return Object.entries(data).map(([name, value]) => ({ name, value }));
-  }, [state.transactions, state.categories]);
+const OverviewView = ({ state, onAdd }: any) => {
+  const [form, setForm] = useState({ accountId: '', categoryId: '', amount: 0, type: '支出' as CategoryType, date: new Date().toISOString().split('T')[0], note: '' });
+  const total = useMemo(() => state.accounts.reduce((s: number, a: any) => s + a.balance, 0), [state.accounts]);
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="md:col-span-1 bg-blue-600 border-none text-white">
-          <p className="text-blue-100 text-sm font-medium">總資產淨額</p>
-          <h2 className="text-3xl font-bold mt-1">NT$ {totalBalance.toLocaleString()}</h2>
-          <div className="mt-6 flex gap-4">
-             <div className="flex-1 bg-white/10 rounded-lg p-3">
-               <div className="flex items-center gap-2 text-xs text-blue-100 mb-1"><TrendingUp size={14} /> 帳戶數量</div>
-               <div className="font-bold">{state.accounts.length}</div>
-             </div>
-             <div className="flex-1 bg-white/10 rounded-lg p-3">
-               <div className="flex items-center gap-2 text-xs text-blue-100 mb-1"><TrendingDown size={14} /> 本月支出</div>
-               <div className="font-bold">{state.transactions.filter(t => t.type === '支出').reduce((s, t) => s + t.amount, 0).toLocaleString()}</div>
-             </div>
-          </div>
+        <Card className="bg-blue-600 text-white border-none shadow-blue-200">
+          <p className="text-blue-100 text-sm uppercase font-bold tracking-wider">資產淨額</p>
+          <h2 className="text-3xl font-black mt-1">NT$ {total.toLocaleString()}</h2>
         </Card>
+        <Card title="快速記帳" className="md:col-span-2">
+          <form className="grid grid-cols-2 md:grid-cols-5 gap-3" onSubmit={e => { e.preventDefault(); onAdd(form); setForm({...form, amount: 0}); }}>
+            <select className="p-2 border rounded-lg bg-slate-50 text-sm" value={form.type} onChange={e => setForm({...form, type: e.target.value as CategoryType})}>
+              <option value="支出">支出</option>
+              <option value="收入">收入</option>
+            </select>
+            <select className="p-2 border rounded-lg bg-slate-50 text-sm" value={form.accountId} onChange={e => setForm({...form, accountId: e.target.value})} required>
+              <option value="">帳戶</option>
+              {state.accounts.map((a:any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <select className="p-2 border rounded-lg bg-slate-50 text-sm" value={form.categoryId} onChange={e => setForm({...form, categoryId: e.target.value})} required>
+              <option value="">分類</option>
+              {state.categories.filter((c:any) => c.type === form.type).map((c:any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <input type="number" className="p-2 border rounded-lg bg-slate-50 text-sm" placeholder="金額" value={form.amount || ''} onChange={e => setForm({...form, amount: Number(e.target.value)})} required />
+            <Button type="submit">儲存</Button>
+          </form>
+        </Card>
+      </div>
 
-        <Card className="md:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-lg">帳戶分佈</h3>
-            <PieChart size={20} className="text-slate-400" />
-          </div>
-          <div className="h-48">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card title="資金分佈">
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                <Bar dataKey="balance" radius={[4, 4, 0, 0]}>
-                  {chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+              <BarChart data={state.accounts}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                <YAxis axisLine={false} tickLine={false} />
+                <Tooltip />
+                <Bar dataKey="balance" radius={[4, 4, 0, 0]} barSize={40}>
+                  {state.accounts.map((entry: any, index: number) => <Cell key={`c-${index}`} fill={entry.color} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </Card>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card title="支出分類統計">
-          <div className="h-64">
-            {categorySpending.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <RechartsPieChart>
-                  <Pie
-                    data={categorySpending}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {categorySpending.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </RechartsPieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 italic">尚未有支出紀錄</div>
-            )}
+        <Card title="最近交易">
+          <div className="space-y-4">
+            {state.transactions.slice(0, 5).map((tx: any) => (
+              <div key={tx.id} className="flex justify-between items-center border-b pb-3 last:border-0 last:pb-0">
+                <div>
+                  <p className="font-bold text-slate-800">{state.categories.find((c:any) => c.id === tx.categoryId)?.name}</p>
+                  <p className="text-xs text-slate-500">{tx.date} · {state.accounts.find((a:any) => a.id === tx.accountId)?.name}</p>
+                </div>
+                <p className={`font-bold ${tx.type === '收入' ? 'text-green-600' : 'text-red-500'}`}>
+                  {tx.type === '收入' ? '+' : '-'} {tx.amount.toLocaleString()}
+                </p>
+              </div>
+            ))}
+            {state.transactions.length === 0 && <p className="text-center text-slate-400 py-10">尚無交易明細</p>}
           </div>
-        </Card>
-
-        <Card title="快速記帳">
-          <form className="space-y-4" onSubmit={(e) => {
-            e.preventDefault();
-            onAddTransaction(txForm);
-            setTxForm({ ...txForm, amount: 0, note: '' });
-          }}>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">帳戶</label>
-                <select 
-                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                  value={txForm.accountId} onChange={e => setTxForm({...txForm, accountId: e.target.value})}
-                  required
-                >
-                  <option value="">選擇帳戶</option>
-                  {state.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">類型</label>
-                <select 
-                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                  value={txForm.type} onChange={e => setTxForm({...txForm, type: e.target.value as CategoryType})}
-                >
-                  <option value="支出">支出</option>
-                  <option value="收入">收入</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">分類</label>
-              <select 
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                value={txForm.categoryId} onChange={e => setTxForm({...txForm, categoryId: e.target.value})}
-                required
-              >
-                <option value="">選擇分類</option>
-                {state.categories.filter(c => c.type === txForm.type).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">金額</label>
-                <input 
-                  type="number" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                  value={txForm.amount || ''} onChange={e => setTxForm({...txForm, amount: Number(e.target.value)})}
-                  placeholder="0" required
-                />
-              </div>
-              <div>
-                 <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">日期</label>
-                 <input 
-                  type="date" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                  value={txForm.date} onChange={e => setTxForm({...txForm, date: e.target.value})}
-                  required
-                />
-              </div>
-            </div>
-            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">儲存交易紀錄</Button>
-          </form>
         </Card>
       </div>
     </div>
   );
 };
 
-const AccountsView: React.FC<{ state: AppState, onAddAccount: (name: string, balance: number) => void }> = ({ state, onAddAccount }) => {
+const AccountsView = ({ state, onAdd }: any) => {
   const [name, setName] = useState('');
-  const [balance, setBalance] = useState<number>(0);
-
+  const [balance, setBalance] = useState(0);
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">帳戶管理</h2>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {state.accounts.map(acc => (
-          <div key={acc.id} className="p-6 bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden group">
-            <div className="absolute top-0 left-0 w-1.5 h-full" style={{ backgroundColor: acc.color }}></div>
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-slate-50 rounded-lg group-hover:scale-110 transition-transform"><Wallet size={20} className="text-slate-400" /></div>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">銀行帳戶</p>
-            </div>
-            <h3 className="font-bold text-lg mb-1">{acc.name}</h3>
-            <p className="text-2xl font-bold text-slate-900">NT$ {acc.balance.toLocaleString()}</p>
-          </div>
-        ))}
-        
-        <Card className="flex flex-col items-center justify-center border-dashed bg-slate-50/50">
-          <p className="font-bold mb-4">新增帳戶</p>
-          <div className="space-y-3 w-full">
-            <input 
-              placeholder="帳戶名稱 (如: 薪資戶)" 
-              className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none"
-              value={name} onChange={e => setName(e.target.value)}
-            />
-            <input 
-              type="number" placeholder="初始餘額" 
-              className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none"
-              value={balance || ''} onChange={e => setBalance(Number(e.target.value))}
-            />
-            <Button onClick={() => { onAddAccount(name, balance); setName(''); setBalance(0); }} className="w-full" disabled={!name}>確認新增</Button>
-          </div>
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      {state.accounts.map((acc: any) => (
+        <Card key={acc.id} className="border-t-4" style={{ borderTopColor: acc.color }}>
+          <p className="text-xs font-bold text-slate-400 uppercase">{acc.name}</p>
+          <p className="text-2xl font-black mt-2">NT$ {acc.balance.toLocaleString()}</p>
         </Card>
-      </div>
-    </div>
-  );
-};
-
-const TransactionsView: React.FC<{ state: AppState, onDeleteTransaction: (tx: Transaction) => void }> = ({ state, onDeleteTransaction }) => {
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold">歷史交易紀錄</h2>
-      <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-widest border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4">日期</th>
-                <th className="px-6 py-4">帳戶</th>
-                <th className="px-6 py-4">分類</th>
-                <th className="px-6 py-4">備註</th>
-                <th className="px-6 py-4 text-right">金額</th>
-                <th className="px-6 py-4"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {state.transactions.length > 0 ? state.transactions.map(tx => {
-                const acc = state.accounts.find(a => a.id === tx.accountId);
-                const cat = state.categories.find(c => c.id === tx.categoryId);
-                return (
-                  <tr key={tx.id} className="hover:bg-slate-50 transition-colors group">
-                    <td className="px-6 py-4 text-sm text-slate-500">{tx.date}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: acc?.color }}></div>
-                        <span className="text-sm font-medium">{acc?.name || '未知帳戶'}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded text-xs font-bold ${tx.type === '收入' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                        {cat?.name || tx.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600 italic">{tx.note || '-'}</td>
-                    <td className={`px-6 py-4 text-right font-bold ${tx.type === '收入' ? 'text-green-600' : 'text-slate-900'}`}>
-                      {tx.type === '收入' ? '+' : '-'} {tx.amount.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => onDeleteTransaction(tx)}
-                        className="p-1.5 text-slate-300 hover:text-red-500 transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              }) : (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">目前沒有任何交易紀錄</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      ))}
+      <Card className="border-dashed bg-slate-50/50 flex flex-col items-center justify-center min-h-[140px]">
+        <input className="w-full mb-2 p-1 border rounded text-sm" placeholder="帳戶名稱" value={name} onChange={e => setName(e.target.value)} />
+        <input type="number" className="w-full mb-2 p-1 border rounded text-sm" placeholder="初始餘額" value={balance || ''} onChange={e => setBalance(Number(e.target.value))} />
+        <Button className="w-full" variant="secondary" onClick={() => { if(name){ onAdd(name, balance); setName(''); setBalance(0); } }}>
+          新增
+        </Button>
       </Card>
     </div>
   );
 };
 
-const AIView: React.FC<{ analysis: string | null, isAnalyzing: boolean, onRunAnalysis: () => void }> = ({ analysis, isAnalyzing, onRunAnalysis }) => {
-  return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="text-center space-y-4">
-        <div className="inline-flex p-4 bg-purple-100 rounded-3xl"><BrainCircuit className="text-purple-600 w-10 h-10" /></div>
-        <h2 className="text-3xl font-bold">AI 智慧財務報告</h2>
-        <p className="text-slate-500 max-w-md mx-auto">我們將使用 Gemini-3-Pro 先進模型分析您的收支行為，並提供專業的財務優化建議。</p>
-        <Button 
-          onClick={onRunAnalysis} 
-          disabled={isAnalyzing}
-          className="bg-purple-600 hover:bg-purple-700 px-8 py-3 rounded-xl text-lg shadow-lg shadow-purple-200"
-        >
-          {isAnalyzing ? (
-            <div className="flex items-center gap-2"><Loader2 className="animate-spin" /> 分析中...</div>
-          ) : '生成 AI 報告'}
-        </Button>
-      </div>
+const TransactionsView = ({ state }: any) => (
+  <Card title="交易明細表" className="p-0">
+    <table className="w-full text-sm">
+      <thead className="bg-slate-50 text-slate-500">
+        <tr>
+          <th className="p-4 text-left">日期</th>
+          <th className="p-4 text-left">類型</th>
+          <th className="p-4 text-left">分類</th>
+          <th className="p-4 text-right">金額</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y">
+        {state.transactions.map((tx: any) => (
+          <tr key={tx.id} className="hover:bg-slate-50">
+            <td className="p-4 text-slate-500">{tx.date}</td>
+            <td className="p-4"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${tx.type === '收入' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{tx.type}</span></td>
+            <td className="p-4 font-bold">{state.categories.find((c:any) => c.id === tx.categoryId)?.name}</td>
+            <td className={`p-4 text-right font-bold ${tx.type === '收入' ? 'text-green-600' : 'text-red-500'}`}>{tx.type === '收入' ? '+' : '-'} {tx.amount.toLocaleString()}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </Card>
+);
 
-      {analysis && (
-        <Card className="animate-in fade-in slide-in-from-bottom-4 duration-500 border-purple-200 bg-purple-50/30">
-          <div className="prose prose-slate max-w-none">
-            <div className="whitespace-pre-wrap text-slate-700 leading-relaxed font-medium">
-              {analysis}
-            </div>
-          </div>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-12">
-        <div className="p-6 bg-white rounded-2xl border border-slate-200 text-center">
-          <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">1</div>
-          <p className="text-sm font-bold">智慧分類</p>
-          <p className="text-xs text-slate-400 mt-1">自動識別不尋常的支出高峰</p>
+const AIView = ({ result, loading, onRun }: any) => (
+  <div className="max-w-3xl mx-auto text-center space-y-6">
+    <div className="p-8 bg-purple-50 rounded-3xl inline-block mb-4"><BrainCircuit className="text-purple-600" size={48} /></div>
+    <h2 className="text-2xl font-bold text-slate-800">AI 財務分析</h2>
+    <p className="text-slate-500">讓 Gemini 3 Pro 為您的收支習慣把脈，給予專業的理財建議。</p>
+    <Button onClick={onRun} disabled={loading} className="bg-purple-600 hover:bg-purple-700 mx-auto px-10 py-3 text-lg">
+      {loading ? <Loader2 className="animate-spin" /> : "開始分析我的帳單"}
+    </Button>
+    {result && (
+      <Card className="text-left border-purple-100 bg-white shadow-xl p-8 mt-10">
+        <div className="prose prose-purple max-w-none text-slate-700 leading-relaxed">
+          {result.split('\n').map((l, i) => <p key={i} className="mb-2">{l}</p>)}
         </div>
-        <div className="p-6 bg-white rounded-2xl border border-slate-200 text-center">
-          <div className="w-10 h-10 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">2</div>
-          <p className="text-sm font-bold">預算優化</p>
-          <p className="text-xs text-slate-400 mt-1">根據歷史數據建議每月額度</p>
-        </div>
-        <div className="p-6 bg-white rounded-2xl border border-slate-200 text-center">
-          <div className="w-10 h-10 bg-orange-50 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-4">3</div>
-          <p className="text-sm font-bold">目標追蹤</p>
-          <p className="text-xs text-slate-400 mt-1">計算您距離財務目標還有多遠</p>
-        </div>
-      </div>
-    </div>
-  );
-};
+      </Card>
+    )}
+  </div>
+);
 
 export default App;
