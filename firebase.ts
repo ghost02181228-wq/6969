@@ -1,7 +1,11 @@
 
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { initializeApp, getApps } from 'firebase/app';
+import type { FirebaseApp } from 'firebase/app';
+// Use separate imports for types and functions to avoid resolution ambiguity
+import { getAuth } from 'firebase/auth';
+import type { Auth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import type { Firestore } from 'firebase/firestore';
 
 // 請在此處貼上您的 Firebase Web 設定
 // 您可以在 Firebase Console -> 專案設定 -> 一般 -> 您的應用程式中找到這段內容

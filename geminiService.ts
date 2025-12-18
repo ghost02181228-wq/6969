@@ -2,14 +2,20 @@
 import { GoogleGenAI } from "@google/genai";
 import { AppState } from './types';
 
+/**
+ * 分析財務數據並提供 AI 建議
+ * 使用 gemini-3-pro-preview 並配置思考預算以獲得更深入的財務洞察
+ */
 export const analyzeFinances = async (state: AppState) => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    return "由於未設定 API 金鑰，無法提供 AI 財務建議。請在 GitHub Secrets 中配置 API_KEY。";
+  // 必須直接從 process.env.API_KEY 獲取 API key，且不得向用戶詢問
+  if (!process.env.API_KEY) {
+    return "由於未設定 API 金鑰，無法提供 AI 財務建議。";
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    // 必須使用 new GoogleGenAI({ apiKey: process.env.API_KEY }) 直接傳入環境變數
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const totalIncome = state.transactions
       .filter(t => t.type === '收入')
       .reduce((acc, t) => acc + t.amount, 0);
@@ -34,11 +40,17 @@ export const analyzeFinances = async (state: AppState) => {
       請以繁體中文回答，並使用簡潔的 Markdown 格式。
     `;
 
+    // 使用 gemini-3-pro-preview 進行複雜的理財分析
+    // 啟用 Thinking Config 以獲得更精確的推理結果
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: prompt,
+      config: {
+        thinkingConfig: { thinkingBudget: 4096 }
+      }
     });
 
+    // 獲取生成的文字內容，直接訪問 .text 屬性
     return response.text || "無法生成 AI 建議。";
   } catch (error) {
     console.error("Gemini API Error:", error);

@@ -5,10 +5,14 @@ import {
   Trash2, BrainCircuit, Loader2, Menu, Plus, ShieldCheck, PlayCircle, Info, Database, FlaskConical
 } from 'lucide-react';
 import { auth, db, isConfigured } from './firebase';
+// Fix: separate type import for User and functional imports for auth operations
 import { 
-  onAuthStateChanged, signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, signOut, User 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut 
 } from 'firebase/auth';
+import type { User } from 'firebase/auth';
 import { 
   collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc 
 } from 'firebase/firestore';
@@ -131,7 +135,6 @@ const App: React.FC = () => {
     await addDoc(collection(db, `users/${user.uid}/accounts`), newAccData);
   };
 
-  // 修正：新增 handleRunAI 函式以呼叫 Gemini 服務進行財務分析
   const handleRunAI = async () => {
     setIsAnalyzing(true);
     try {
