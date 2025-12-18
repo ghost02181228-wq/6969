@@ -15,6 +15,7 @@
     "lucide-react": "latest",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-is": "^19.0.0",
     "recharts": "latest",
     "clsx": "latest",
     "tailwind-merge": "latest"

@@ -1,9 +1,8 @@
 
 import { initializeApp, getApps } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
-// Fix: Separate functional imports (values) from interface imports (types) for Firebase Auth
-import { getAuth } from 'firebase/auth';
-import type { Auth } from 'firebase/auth';
+// Fix: Consolidate functional and type imports for Firebase Auth to resolve "no exported member" errors
+import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
 

@@ -8,12 +8,20 @@ export default defineConfig({
   define: {
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
   },
+  resolve: {
+    alias: {
+      // Ensure proper resolution of react-is which is often required by charting libraries
+      'react-is': 'react-is'
+    }
+  },
   build: {
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true
+    // Reverted to default minifier (esbuild) to resolve type errors in terserOptions
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor': ['react', 'react-dom', 'firebase/app', 'firebase/auth', 'firebase/firestore'],
+          'charts': ['recharts']
+        }
       }
     }
   }
