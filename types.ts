@@ -5,7 +5,7 @@ export interface Category {
   id: string;
   name: string;
   type: CategoryType;
-  icon?: string;
+  icon: string;
 }
 
 export interface BankAccount {
@@ -25,15 +25,24 @@ export interface Transaction {
   note: string;
 }
 
+export interface Budget {
+  categoryId: string;
+  amount: number;
+}
+
 export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
+  monthlyBudget: number;
+  budgets: Budget[];
 }
 
+// Fixed: Consolidated AppState into a single declaration and ensured categories is an array
 export interface AppState {
   accounts: BankAccount[];
   categories: Category[];
   transactions: Transaction[];
+  userProfile: UserProfile | null;
   isDemo: boolean;
 }
