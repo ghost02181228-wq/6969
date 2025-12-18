@@ -5,17 +5,17 @@ import {
   Wallet, PieChart, LogOut, TrendingUp, TrendingDown, 
   Trash2, BrainCircuit, Loader2, Menu, Plus, ShieldCheck, 
   PlayCircle, Info, Database, FlaskConical, Settings, 
-  ChevronRight, Calendar, Target, User as UserIcon, X
+  ChevronRight, Calendar, Target, User as UserIcon, X, Search, AlertCircle
 } from 'lucide-react';
 import { auth, db, isConfigured } from './firebase';
-// Fixed: Separated type and value imports from firebase/auth
+// Fix: Consolidated Firebase Auth imports to resolve member resolution errors
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
-  signOut
+  signOut,
+  User
 } from 'firebase/auth';
-import type { User } from 'firebase/auth';
 import { 
   collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, setDoc, getDoc
 } from 'firebase/firestore';
@@ -98,7 +98,6 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isConfigured) {
       setLoading(false);
-      // 從 LocalStorage 載入資料 (如果是在測試模式)
       const saved = localStorage.getItem('finance_app_data');
       if (saved) {
         try { setState(JSON.parse(saved)); } catch(e) {}
@@ -142,7 +141,6 @@ const App: React.FC = () => {
     return () => { unsubAccs(); unsubTxs(); };
   }, [appMode, user]);
 
-  // 儲存至 LocalStorage (測試模式)
   useEffect(() => {
     if (appMode === 'test') {
       localStorage.setItem('finance_app_data', JSON.stringify(state));
@@ -182,6 +180,38 @@ const App: React.FC = () => {
     }
   };
 
+  const deleteTransaction = async (txId: string) => {
+    if (!confirm("確定要刪除此筆交易嗎？")) return;
+    const txToDelete = state.transactions.find(t => t.id === txId);
+    if (!txToDelete) return;
+
+    if (appMode === 'test' || !user || !db) {
+      setState(p => ({
+        ...p,
+        transactions: p.transactions.filter(t => t.id !== txId),
+        accounts: p.accounts.map(a => 
+          a.id === txToDelete.accountId 
+            ? { ...a, balance: a.balance - (txToDelete.type === '收入' ? txToDelete.amount : -txToDelete.amount) } 
+            : a
+        )
+      }));
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/transactions`, txId));
+      const acc = state.accounts.find(a => a.id === txToDelete.accountId);
+      if (acc) {
+        const accRef = doc(db, `users/${user.uid}/accounts`, txToDelete.accountId);
+        await updateDoc(accRef, { 
+          balance: acc.balance - (txToDelete.type === '收入' ? txToDelete.amount : -txToDelete.amount) 
+        });
+      }
+    } catch (e) {
+      console.error("刪除失敗", e);
+    }
+  };
+
   const addAccount = async (name: string, balance: number) => {
     const newAccData = { name, balance, color: ACCOUNT_COLORS[state.accounts.length % ACCOUNT_COLORS.length] };
     if (appMode === 'test' || !user || !db) {
@@ -210,11 +240,47 @@ const App: React.FC = () => {
     setState({ accounts: DEFAULT_ACCOUNTS, categories: DEFAULT_CATEGORIES, transactions: [], userProfile: null, isDemo: true });
   };
 
+  const handleClearAllData = () => {
+    if (!confirm("⚠️ 警告：這將會清除所有交易與帳戶設定，確定嗎？")) return;
+    if (appMode === 'test') {
+      localStorage.removeItem('finance_app_data');
+      setState({ accounts: DEFAULT_ACCOUNTS, categories: DEFAULT_CATEGORIES, transactions: [], userProfile: null, isDemo: true });
+      alert("資料已重設");
+    } else {
+      alert("雲端模式暫不支援一鍵清除，請手動刪除單筆資料。");
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (state.transactions.length === 0) {
+      alert("尚無交易資料可匯出");
+      return;
+    }
+    const headers = ['日期', '類型', '分類', '帳戶', '金額', '備註'];
+    const rows = state.transactions.map(tx => [
+      tx.date,
+      tx.type,
+      state.categories.find(c => c.id === tx.categoryId)?.name || '未分類',
+      state.accounts.find(a => a.id === tx.accountId)?.name || '未知',
+      tx.amount,
+      tx.note.replace(/,/g, ' ')
+    ]);
+    const csvContent = "\ufeff" + [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", `金流大師_報表_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const updateMonthlyBudget = async (amount: number) => {
     if (appMode === 'production' && user && db) {
       await updateDoc(doc(db, "users", user.uid), { monthlyBudget: amount });
     }
     setState(p => ({ ...p, userProfile: p.userProfile ? { ...p.userProfile, monthlyBudget: amount } : null }));
+    alert("預算已更新");
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
@@ -274,7 +340,7 @@ const App: React.FC = () => {
                   <label className="text-xs font-bold text-slate-400 ml-1">安全密碼</label>
                   <input type="password" placeholder="••••••••" className="w-full p-4 bg-slate-50 border-transparent border-2 focus:border-blue-500 focus:bg-white rounded-xl transition-all outline-none" value={password} onChange={e => setPassword(e.target.value)} required />
                 </div>
-                {authError && <div className="p-3 bg-red-50 text-red-500 text-xs rounded-lg font-bold flex items-center gap-2"><Icons.AlertCircle size={14}/>{authError}</div>}
+                {authError && <div className="p-3 bg-red-50 text-red-500 text-xs rounded-lg font-bold flex items-center gap-2"><AlertCircle size={14}/>{authError}</div>}
                 <Button type="submit" className="w-full py-4 text-lg shadow-blue-200" loading={loading}>{isRegistering ? '立即註冊' : '登入系統'}</Button>
                 <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="w-full text-slate-500 text-sm font-medium hover:text-blue-600 transition-colors">
                   {isRegistering ? '已經有帳號？點此登入' : '還沒有帳號嗎？點此快速註冊'}
@@ -289,7 +355,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-white hidden md:flex flex-col p-6 space-y-2 border-r border-slate-800">
         <div className="flex items-center gap-3 font-black text-2xl text-blue-400 mb-10 px-2">
           <div className="p-2 bg-blue-600/20 rounded-lg"><Wallet size={24}/></div>
@@ -321,20 +386,23 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto">
         <div className="max-w-6xl mx-auto">
-          {activeTab === 'overview' && <OverviewView state={state} onAdd={addTransaction} />}
+          {/* Fix: Passed setActiveTab as onNavigate to OverviewView */}
+          {activeTab === 'overview' && <OverviewView state={state} onAdd={addTransaction} onNavigate={setActiveTab} />}
           {activeTab === 'accounts' && <AccountsView state={state} onAdd={addAccount} />}
-          {activeTab === 'transactions' && <TransactionsView state={state} />}
+          {activeTab === 'transactions' && <TransactionsView state={state} onDelete={deleteTransaction} />}
           {activeTab === 'ai' && <AIView result={aiResult} loading={isAnalyzing} onRun={handleRunAI} />}
           {activeTab === 'profile' && (
             <ProfileView 
               userProfile={state.userProfile} 
               onUpdateBudget={updateMonthlyBudget}
+              onClearData={handleClearAllData}
+              onExport={handleExportCSV}
               onUpdateName={async (name) => {
                 if(user && db) await updateDoc(doc(db, "users", user.uid), { displayName: name });
                 setState(p => ({ ...p, userProfile: p.userProfile ? { ...p.userProfile, displayName: name } : null }));
+                alert("姓名已更新");
               }}
             />
           )}
@@ -350,7 +418,8 @@ const NavButton = ({ active, onClick, icon, label }: any) => (
   </button>
 );
 
-const OverviewView = ({ state, onAdd }: any) => {
+// Fix: Added onNavigate to component props to resolve scope issues with setActiveTab
+const OverviewView = ({ state, onAdd, onNavigate }: any) => {
   const [form, setForm] = useState({ accountId: '', categoryId: '', amount: 0, type: '支出' as CategoryType, date: new Date().toISOString().split('T')[0], note: '' });
   const total = useMemo(() => state.accounts.reduce((s: number, a: any) => s + a.balance, 0), [state.accounts]);
   
@@ -467,7 +536,8 @@ const OverviewView = ({ state, onAdd }: any) => {
           </div>
         </Card>
 
-        <Card title="最近交易活動" headerAction={<button className="text-xs font-bold text-blue-600 hover:underline">查看全部</button>}>
+        {/* Fix: Used onNavigate prop instead of setActiveTab directly */}
+        <Card title="最近交易活動" headerAction={<button className="text-xs font-bold text-blue-600 hover:underline" onClick={() => onNavigate('transactions')}>查看全部</button>}>
           <div className="space-y-1">
             {state.transactions.slice(0, 6).map((tx: any) => {
               const cat = state.categories.find((c:any) => c.id === tx.categoryId);
@@ -557,7 +627,7 @@ const AccountsView = ({ state, onAdd }: any) => {
   );
 };
 
-const TransactionsView = ({ state }: any) => {
+const TransactionsView = ({ state, onDelete }: any) => {
   const [filter, setFilter] = useState('');
   const filtered = state.transactions.filter((tx: any) => {
     const cat = state.categories.find((c:any) => c.id === tx.categoryId)?.name || '';
@@ -572,7 +642,7 @@ const TransactionsView = ({ state }: any) => {
           <p className="text-slate-500 font-medium">查看並搜尋所有的歷史交易資料</p>
         </div>
         <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm w-full md:w-64">
-           <div className="p-2 text-slate-400"><Icons.Search size={18}/></div>
+           <div className="p-2 text-slate-400"><Search size={18}/></div>
            <input 
              className="bg-transparent border-none outline-none text-sm font-medium w-full pr-4" 
              placeholder="搜尋分類或備註..." 
@@ -619,7 +689,12 @@ const TransactionsView = ({ state }: any) => {
                       </p>
                     </td>
                     <td className="px-6 py-4 text-center">
-                       <button className="p-2 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={16}/></button>
+                       <button 
+                         onClick={() => onDelete(tx.id)}
+                         className="p-2 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Trash2 size={16}/>
+                        </button>
                     </td>
                   </tr>
                 );
@@ -685,12 +760,12 @@ const AICapabilityCard = ({ icon, title, desc }: any) => (
   </Card>
 );
 
-const ProfileView = ({ userProfile, onUpdateBudget, onUpdateName }: any) => {
+const ProfileView = ({ userProfile, onUpdateBudget, onUpdateName, onClearData, onExport }: any) => {
   const [name, setName] = useState(userProfile?.displayName || '');
   const [budget, setBudget] = useState(userProfile?.monthlyBudget || 0);
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 pb-20">
       <h2 className="text-3xl font-black text-slate-800">個人設定</h2>
       
       <Card title="個人資料" subtitle="管理您的顯示名稱與帳號資訊">
@@ -701,7 +776,7 @@ const ProfileView = ({ userProfile, onUpdateBudget, onUpdateName }: any) => {
             </div>
             <div>
               <p className="text-xs font-black text-slate-400 uppercase">帳號 UID</p>
-              <p className="text-xs font-mono text-slate-500 bg-slate-100 p-1 px-2 rounded mt-1">{userProfile?.uid}</p>
+              <p className="text-[10px] font-mono text-slate-500 bg-slate-100 p-1 px-2 rounded mt-1 overflow-hidden truncate max-w-[200px]">{userProfile?.uid}</p>
             </div>
           </div>
           <div className="space-y-1">
@@ -734,9 +809,9 @@ const ProfileView = ({ userProfile, onUpdateBudget, onUpdateName }: any) => {
         </div>
       </Card>
 
-      <div className="flex gap-4">
-        <Button variant="danger" className="flex-1 py-4">清除所有資料</Button>
-        <Button variant="outline" className="flex-1 py-4">匯出 CSV 報表</Button>
+      <div className="flex flex-col md:flex-row gap-4">
+        <Button variant="danger" className="flex-1 py-4" onClick={onClearData}>清除所有資料</Button>
+        <Button variant="outline" className="flex-1 py-4" onClick={onExport}>匯出 CSV 報表</Button>
       </div>
     </div>
   );

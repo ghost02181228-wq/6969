@@ -1,9 +1,8 @@
 
 import { initializeApp, getApps } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
-// Fixed: Separated value and type imports for Auth to resolve potential resolution issues
-import { getAuth } from 'firebase/auth';
-import type { Auth } from 'firebase/auth';
+// Fix: Consolidated value and type imports from 'firebase/auth' to resolve exported member errors
+import { getAuth, Auth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
 
